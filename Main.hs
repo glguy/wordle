@@ -8,6 +8,7 @@ Maintainer  : emertens@gmail.com
 -}
 module Main (main) where
 
+import Control.Applicative
 import Control.Exception (bracket_)
 import Control.Monad (unless)
 import Data.Char (toUpper)
@@ -90,9 +91,7 @@ solverLoop ::
   IO ()
 
 solverLoop _ _ [] =
- do putStrLn (setSGRCode [SetColor Background Dull Red, SetColor Foreground Dull White] ++
-              " E  R  R  O  R " ++
-              setSGRCode [Reset])
+ do putStrLn (colorWord [(Red,x) | x <- "ERROR"])
 
 solverLoop _ _ [answer] =
  do putStrLn (prettyWord [(Just Hit, x) | x <- answer])
@@ -109,18 +108,19 @@ solverLoop nexts dict remain =
 
 -- | Render a word with colors indicating clue status
 prettyWord :: [(Maybe Clue, Char)] -> String
-prettyWord ((x,y):xs) =
-  setSGRCode [SetColor Background Dull color, SetColor Foreground Dull White] ++
+prettyWord xs = colorWord [(maybe Blue clueColor c, x) | (c,x) <- xs]
+
+clueColor :: Clue -> Color
+clueColor Hit  = Green
+clueColor Miss = Black
+clueColor Near = Yellow
+
+colorWord :: [(Color, Char)] -> String
+colorWord ((x,y):xs) =
+  setSGRCode [SetColor Background Dull x, SetColor Foreground Dull White] ++
   [' ',y,' '] ++
-  prettyWord xs
-  where
-    color =
-      case x of
-        Just Hit  -> Green
-        Just Miss -> Black
-        Just Near -> Yellow
-        Nothing   -> Blue
-prettyWord _ = setSGRCode [Reset]
+  colorWord xs
+colorWord _ = setSGRCode [Reset]
 
 -- * Word choice heuristic
 
@@ -179,7 +179,7 @@ getSecret :: [String] -> IO [Char]
 getSecret dict = go []
   where
     go acc =
-     do putStr ('\r' : prettyWord [(Just Hit, x) | x <- take 5 (('*' <$ acc) ++ repeat ' ')])
+     do putStr ('\r' : prettyWord [(Just Hit, x) | x <- take 5 ('*' <$ acc <|> repeat ' ')])
         hFlush stdout
         c <- toUpper <$> getChar
         case c of
@@ -192,7 +192,7 @@ getWord :: Map Char Clue -> [String] -> IO [Char]
 getWord letters dict = go []
   where
     go acc =
-     do putStr ('\r' : prettyWord [(Nothing, x) | x <- take 5 (acc ++ repeat ' ')]
+     do putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat ' ')]
                   ++ "    " ++
                   prettyWord [(Map.lookup x letters, x) | x <- ['A' .. 'Z']])
         hFlush stdout
