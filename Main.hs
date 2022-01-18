@@ -24,6 +24,9 @@ import System.IO (hFlush, hSetBuffering, hSetEcho, stdin, stdout, BufferMode(NoB
 import System.Random (randomRIO)
 import Text.Printf (printf)
 
+topHint :: String
+topHint = "SERAI"
+
 getDictionary :: IO [String]
 getDictionary = lines <$> readFile "all.txt"
 
@@ -83,7 +86,7 @@ solver ::
   IO ()
 solver start =
  do allWords <- getDictionary
-    solverLoop (map (map toUpper) start <++ ["AESIR"]) allWords allWords
+    solverLoop (map (map toUpper) start <++ [topHint]) allWords allWords
 
 solverLoop ::
   [String] ->
@@ -133,7 +136,7 @@ metric ::
 metric dict word = maximum (Map.fromListWith (+) [(computeClues w word, 1) | w <- dict])
 
 difficulty :: [String] -> String -> Int
-difficulty dict answer = go 1 (learn "AESIR" dict)
+difficulty dict answer = go 1 (learn topHint dict)
   where
     learn v = filter (\w -> computeClues answer v == computeClues w v)
     go acc [_] = acc
@@ -201,7 +204,8 @@ getWord letters dict remain = go []
         case c of
           '\n'   | acc `elem` dict                    -> acc <$ clearLine
           '\DEL' | not (null acc)                     -> go (init acc)
-          '?' -> go =<< randomFromList (pickWord dict remain)
+          '?' | length remain > 1000 -> pure topHint
+              | otherwise -> go =<< randomFromList (pickWord dict remain)
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc
 
