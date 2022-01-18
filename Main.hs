@@ -204,7 +204,7 @@ getWord letters dict remain = go []
         case c of
           '\n'   | acc `elem` dict                    -> acc <$ clearLine
           '\DEL' | not (null acc)                     -> go (init acc)
-          '?' | length remain > 1000 -> pure topHint
+          '?' | length remain > 1000                  -> go topHint
               | otherwise -> go =<< randomFromList (pickWord dict remain)
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc
