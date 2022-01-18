@@ -55,23 +55,24 @@ play =
  do d <- getDictionary
     p <- lines <$> readFile "play.txt"
     w <- randomFromList p
-    playLoop d w Map.empty
+    playLoop d d w Map.empty
 
 -- | Play worded with a manually-selected word
 give :: IO ()
 give =
  do d <- getDictionary
     w <- getSecret d
-    playLoop d w Map.empty
+    playLoop d d w Map.empty
 
-playLoop :: [String] -> String -> Map.Map Char Clue -> IO ()
-playLoop dict answer letters =
- do w <- getWord letters dict
+playLoop :: [String] -> [String] -> String -> Map.Map Char Clue -> IO ()
+playLoop dict remain answer letters =
+ do w <- getWord letters dict remain
     let clue = computeClues answer w
+    let remain' = filter (\x -> computeClues x w == clue) remain
     let letters' = Map.unionWith max letters (Map.fromListWith max (zip w clue))
     putStrLn ('\r' : prettyWord (zip (Just <$> clue) w))
     unless (clue == replicate 5 Hit)
-      (playLoop dict answer letters')
+      (playLoop dict remain' answer letters')
 
 -- | Use the metric computation to have the computer make guesses.
 -- The user must provide the clue responses. The solver will use
@@ -188,8 +189,8 @@ getSecret dict = go []
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc    
 
-getWord :: Map Char Clue -> [String] -> IO [Char]
-getWord letters dict = go []
+getWord :: Map Char Clue -> [String] -> [String] -> IO [Char]
+getWord letters dict remain = go []
   where
     go acc =
      do putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat ' ')]
@@ -200,6 +201,7 @@ getWord letters dict = go []
         case c of
           '\n'   | acc `elem` dict                    -> acc <$ clearLine
           '\DEL' | not (null acc)                     -> go (init acc)
+          '?' -> go =<< randomFromList (pickWord dict remain)
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc
 
