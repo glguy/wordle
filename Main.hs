@@ -1,4 +1,4 @@
-{-# Language BlockArguments, ViewPatterns, ImportQualifiedPost #-}
+{-# Language BlockArguments, ImportQualifiedPost #-}
 {- |
 Module      : Main
 Description : The whole program
@@ -13,102 +13,94 @@ import Control.Exception (bracket_)
 import Control.Monad (unless)
 import Data.Char (toUpper)
 import Data.Function (on)
-import Data.List (foldl', groupBy, sortBy, sortOn, mapAccumL)
+import Data.List (foldl', delete, groupBy, sortBy, mapAccumL)
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
 import System.Console.ANSI (hideCursor, showCursor, clearLine)
 import System.Console.ANSI.Codes
-import System.Environment (getArgs)
-import System.IO (hFlush, hSetBuffering, hSetEcho, stdin, stdout, BufferMode(NoBuffering))
 import System.Random (randomRIO)
 import Text.Printf (printf)
+import System.IO
+
+import Options
 
 topHint :: String
-topHint = "SERAI"
-
-getDictionary :: IO [String]
-getDictionary = lines <$> readFile "all.txt"
+topHint = "RAISE"
 
 main :: IO ()
 main =
- do args <- getArgs
-    case args of
-      ("solve":start) -> withoutCursor (solver start)
-      ["play"]  -> withoutCursor play
-      ["give"]  -> withoutCursor give
-      _         ->
-        putStr "Usage: wordle <solve|play|give>\n\
-               \\n\
-               \Modes:\n\
-               \    solve - Program guesses a secret word, reply with 'b' 'y' 'g'\n\
-               \    play  - Program picks a random word, type in your guess words\n\
-               \    give  - User types in the secret words, then types in guess words\n"
+ do opts <- getOptions
+    case optMode opts of
+      Solve xs -> withoutCursor (solver opts xs)
+      Give     -> withoutCursor (give opts)
+      Play     -> withoutCursor (play opts)
 
 withoutCursor :: IO c -> IO c
 withoutCursor m = bracket_ hideCursor showCursor
  do hSetBuffering stdin NoBuffering
     hSetEcho stdin False
-    putStrLn (setSGRCode [SetColor Foreground  Dull Magenta] ++ "[ W O R D L E ]")
+    putStrLn (setSGRCode [SetColor Foreground Dull Magenta] ++ "[ W O R D L E ]")
     m
 
 -- | Play wordle with a randomly-selected word
-play :: IO ()
-play =
- do d <- getDictionary
-    p <- lines <$> readFile "play.txt"
-    w <- randomFromList p
-    playLoop d d w Map.empty
+play :: Options [String] -> IO ()
+play opts =
+ do w <- randomFromList (optWordlist opts)
+    playLoop (optStrategy opts) (optDictionary opts) (optDictionary opts) w Map.empty
 
--- | Play worded with a manually-selected word
-give :: IO ()
-give =
- do d <- getDictionary
-    w <- getSecret d
-    playLoop d d w Map.empty
+-- | Play wordle with a manually-selected word
+give :: Options [String] -> IO ()
+give opts =
+ do w <- getSecret (optDictionary opts)
+    playLoop (optStrategy opts) (optDictionary opts) (optDictionary opts) w Map.empty
 
-playLoop :: [String] -> [String] -> String -> Map.Map Char Clue -> IO ()
-playLoop dict remain answer letters =
- do w <- getWord letters dict remain
+playLoop :: Strategy -> [String] -> [String] -> String -> Map.Map Char Clue -> IO ()
+playLoop strat dict remain answer letters =
+ do w <- getWord strat letters dict remain
     let clue = computeClues answer w
     let remain' = filter (\x -> computeClues x w == clue) remain
     let letters' = Map.unionWith max letters (Map.fromListWith max (zip w clue))
     putStrLn ('\r' : prettyWord (zip (Just <$> clue) w))
     unless (clue == replicate 5 Hit)
-      (playLoop dict remain' answer letters')
+      (playLoop strat dict remain' answer letters')
 
 -- | Use the metric computation to have the computer make guesses.
 -- The user must provide the clue responses. The solver will use
 -- the given guess-list to start and then switch to metrics when
 -- the list is exhausted.
 solver ::
+  Options [String] ->
   [String] {- ^ initial guesses -} ->
   IO ()
-solver start =
- do allWords <- getDictionary
-    solverLoop (map (map toUpper) start <++ [topHint]) allWords allWords
+solver opts start =
+  solverLoop
+    (optStrategy opts)
+    (map (map toUpper) start <++ [topHint])
+    (optDictionary opts) (optDictionary opts)
 
 solverLoop ::
+  Strategy ->
   [String] ->
   [String] ->
   [String] ->
   IO ()
 
-solverLoop _ _ [] =
+solverLoop _ _ _ [] =
  do putStrLn (colorWord [(Red,x) | x <- "ERROR"])
 
-solverLoop _ _ [answer] =
+solverLoop _ _ _ [answer] =
  do putStrLn (prettyWord [(Just Hit, x) | x <- answer])
 
-solverLoop nexts dict remain =
+solverLoop strat nexts dict remain =
  do (next, nexts') <- case nexts of
                         x:xs -> pure (x,xs)
-                        []   -> do x <- randomFromList (pickWord dict remain)
+                        []   -> do x <- randomFromList (pickWord strat dict remain)
                                    pure (x,[])
     answer <- getClue (length remain) next
     putStrLn ""
     unless (answer == replicate 5 Hit)
-      (solverLoop nexts' dict (filter (\w -> computeClues w next == answer) remain))
+      (solverLoop strat nexts' dict (filter (\w -> computeClues w next == answer) remain))
 
 -- | Render a word with colors indicating clue status
 prettyWord :: [(Maybe Clue, Char)] -> String
@@ -130,35 +122,40 @@ colorWord _ = setSGRCode [Reset]
 
 -- | Find the worst case number of words remaining given a guessed word.
 metric ::
+  Strategy ->
   [String] {- ^ remaining words -} ->
   String   {- ^ guessed word -} ->
-  Int {- ^ worst case words remaining after guess -}
-metric dict word = maximum (Map.fromListWith (+) [(computeClues w word, 1) | w <- dict])
-
-difficulty :: [String] -> String -> Int
-difficulty dict answer = go 1 (learn topHint dict)
+  Double {- ^ worst case words remaining after guess -}
+metric strat dict word = f (Map.fromListWith (+) [(computeClues w word, 1) | w <- dict])
   where
-    learn v = filter (\w -> computeClues answer v == computeClues w v)
-    go acc [_] = acc
-    go acc xs = go (acc+1) (learn next xs)
-      where
-        next = head (sortOn (metric xs) dict)
+    f = case strat of
+          WorstCase -> fromIntegral . maximum
+          MaxEntropy -> entropy
+          SumOfSquares -> fromIntegral . sum . fmap (\x -> x*x)
+          MostChoices  -> negate . fromIntegral . length
+
+entropy :: (Foldable f, Functor f) => f Int -> Double
+entropy ns = log denom - foldl' (\acc x -> acc + h x) 0 ns / denom
+  where
+    h n = fromIntegral n * log (fromIntegral n)
+    denom = fromIntegral (sum ns)
 
 -- | Given a dictionary and a list of remaining possibilities,
 -- find the words with the minimimum metric. Words from the
 -- remaining list are preferred to those not from the list
 -- when the metric is otherwise equal.
 pickWord ::
+  Strategy ->
   [String] {- ^ dictionary -} ->
   [String] {- ^ remaining -} ->
   [String] {- ^ selections -}
-pickWord dict remain = [x | x <- xs, x `elem` remain] <++ xs
+pickWord strat dict remain = [x | x <- xs, x `elem` remain] <++ xs
   where
     xs = map snd
        $ head
        $ groupBy ((==) `on` fst)
        $ sortBy (comparing fst)
-       $ [(metric remain w, w) | w <- dict]
+       $ [(metric strat remain w, w) | w <- dict]
 
 -- * Input modes
 
@@ -192,8 +189,8 @@ getSecret dict = go []
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc    
 
-getWord :: Map Char Clue -> [String] -> [String] -> IO [Char]
-getWord letters dict remain = go []
+getWord :: Strategy -> Map Char Clue -> [String] -> [String] -> IO [Char]
+getWord strat letters dict remain = go []
   where
     go acc =
      do putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat ' ')]
@@ -205,7 +202,7 @@ getWord letters dict remain = go []
           '\n'   | acc `elem` dict                    -> acc <$ clearLine
           '\DEL' | not (null acc)                     -> go (init acc)
           '?' | length remain > 1000                  -> go topHint
-              | otherwise -> go =<< randomFromList (pickWord dict remain)
+              | otherwise -> go =<< randomFromList (pickWord strat dict remain)
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc
 
@@ -227,16 +224,16 @@ computeClues ::
   [Clue] {- ^ per-letter clues -}
 computeClues answer input = snd (mapAccumL clue1 nears (zip answer input))
   where
-    nears = foldl' addLetter Map.empty (zip answer input)
+    nears = foldl' addLetter [] (zip answer input)
 
     addLetter m (a,i)
-      | a == i    = m 
-      | otherwise = Map.insertWith (+) a (1::Int) m
+      | a == i    = m
+      | otherwise = a:m
 
     clue1 m (x,y)
-      | x == y                          = (                   m, Hit )
-      | Just n <- Map.lookup y m, n > 0 = (Map.insert y (n-1) m, Near)
-      | otherwise                       = (                   m, Miss)
+      | x == y     = (         m, Hit )
+      | y `elem` m = (delete y m, Near)
+      | otherwise  = (         m, Miss)
 
 -- * List utilities
 
