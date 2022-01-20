@@ -12,6 +12,7 @@ import Control.Applicative
 import Control.Exception (bracket_)
 import Control.Monad (unless)
 import Data.Char (toUpper)
+import Data.Foldable
 import Data.Function (on)
 import Data.List (foldl', delete, groupBy, sortBy, mapAccumL)
 import Data.Map (Map)
@@ -19,9 +20,9 @@ import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
 import System.Console.ANSI (hideCursor, showCursor, clearLine)
 import System.Console.ANSI.Codes
+import System.IO
 import System.Random (randomRIO)
 import Text.Printf (printf)
-import System.IO
 
 import Options
 
@@ -136,10 +137,13 @@ metric strat dict word = f (Map.fromListWith (+) [(computeClues w word, 1) | w <
           MostChoices  -> negate . fromIntegral . length
 
 negEntropy :: Foldable f => f Int -> Double
-negEntropy ns = foldl' (\acc x -> acc + h x) 0 ns / denom - log denom
+negEntropy ns = w / denom - log denom
   where
-    h n = let n' = fromIntegral n in n' * log n'
-    denom = fromIntegral (sum ns)
+    M denom w = foldMap' (\x -> let x' = fromIntegral x in M x' (x' * log x')) ns
+
+data M = M !Double !Double
+instance Monoid M where mempty = M 0 0
+instance Semigroup M where M x y <> M u v = M (x+u) (y+v)
 
 -- | Given a dictionary and a list of remaining possibilities,
 -- find the words with the minimimum metric. Words from the
