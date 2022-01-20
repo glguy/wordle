@@ -135,10 +135,11 @@ metric strat dict word = f (Map.fromListWith (+) [(computeClues w word, 1) | w <
           SumOfSquares -> fromIntegral . sum . fmap (\x -> x*x)
           MostChoices  -> negate . fromIntegral . length
 
-negEntropy :: (Foldable f, Functor f) => f Int -> Double
-negEntropy ns = sum (h <$> ns) where
-    h n = let p = fromIntegral n / denom in p * log p
-    denom = fromIntegral (sum ns) :: Double
+negEntropy :: Foldable f => f Int -> Double
+negEntropy ns = foldl' (\acc x -> acc + h x) 0 ns / denom - log denom
+  where
+    h n = let n' = fromIntegral n in n' * log n'
+    denom = fromIntegral (sum ns)
 
 -- | Given a dictionary and a list of remaining possibilities,
 -- find the words with the minimimum metric. Words from the
