@@ -112,11 +112,12 @@ clueColor Miss = Black
 clueColor Near = Yellow
 
 colorWord :: [(Color, Char)] -> String
-colorWord ((x,y):xs) =
-  setSGRCode [SetColor Background Dull x, SetColor Foreground Dull White] ++
-  [' ',y,' '] ++
-  colorWord xs
-colorWord _ = setSGRCode [Reset]
+colorWord w = setSGRCode [SetConsoleIntensity BoldIntensity] ++
+              foldr f (setSGRCode [Reset]) w
+  where
+    f (x,y) z =
+      setSGRCode [SetColor Background Dull x, SetColor Foreground Dull White] ++
+      [' ',y,' '] ++ z
 
 -- * Word choice heuristic
 
@@ -130,15 +131,14 @@ metric strat dict word = f (Map.fromListWith (+) [(computeClues w word, 1) | w <
   where
     f = case strat of
           WorstCase -> fromIntegral . maximum
-          MaxEntropy -> entropy
+          MaxEntropy -> negEntropy
           SumOfSquares -> fromIntegral . sum . fmap (\x -> x*x)
           MostChoices  -> negate . fromIntegral . length
 
-entropy :: (Foldable f, Functor f) => f Int -> Double
-entropy ns = log denom - foldl' (\acc x -> acc + h x) 0 ns / denom
-  where
-    h n = fromIntegral n * log (fromIntegral n)
-    denom = fromIntegral (sum ns)
+negEntropy :: (Foldable f, Functor f) => f Int -> Double
+negEntropy ns = sum (h <$> ns) where
+    h n = let p = fromIntegral n / denom in p * log p
+    denom = fromIntegral (sum ns) :: Double
 
 -- | Given a dictionary and a list of remaining possibilities,
 -- find the words with the minimimum metric. Words from the
@@ -180,20 +180,20 @@ getSecret :: [String] -> IO [Char]
 getSecret dict = go []
   where
     go acc =
-     do putStr ('\r' : prettyWord [(Just Hit, x) | x <- take 5 ('*' <$ acc <|> repeat ' ')])
+     do putStr ('\r' : prettyWord [(Just Hit, x) | x <- take 5 ('◆' <$ acc <|> repeat '·')])
         hFlush stdout
         c <- toUpper <$> getChar
         case c of
           '\n'   | acc `elem` dict                    -> pure acc
           '\DEL' | not (null acc)                     -> go (init acc)
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
-                 | otherwise                          -> go acc    
+                 | otherwise                          -> go acc
 
 getWord :: Strategy -> Map Char Clue -> [String] -> [String] -> IO [Char]
 getWord strat letters dict remain = go []
   where
     go acc =
-     do putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat ' ')]
+     do putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat '·')]
                   ++ "    " ++
                   prettyWord [(Map.lookup x letters, x) | x <- ['A' .. 'Z']])
         hFlush stdout
