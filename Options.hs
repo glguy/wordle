@@ -24,7 +24,7 @@ data Options a = Options
   }
   deriving (Read, Show, Eq, Ord, Foldable, Functor, Traversable)
 
-data Keyboard = Qwerty | Dvorak | Colemak
+data Keyboard = Qwerty | Dvorak | Colemak | Alphabet | Frequencies
   deriving (Read, Show, Eq, Ord)
 
 defaultOpts :: Options FilePath
@@ -56,6 +56,8 @@ optDescrs =
   , Option [] ["qwerty"]  (NoArg \o -> o { optKeyboard = Qwerty})  "Keyboard layout: qwerty (default)"
   , Option [] ["dvorak"]  (NoArg \o -> o { optKeyboard = Dvorak})  "Keyboard layout: dvorak"
   , Option [] ["colemak"] (NoArg \o -> o { optKeyboard = Colemak}) "Keyboard layout: colemak"
+  , Option [] ["alphabet"] (NoArg \o -> o { optKeyboard = Alphabet}) "Keyboard layout: alphabet"
+  , Option [] ["frequencies"] (NoArg \o -> o { optKeyboard = Frequencies}) "Keyboard layout: frequencies"
   ]
 
 getOptions :: IO (Options [String])
