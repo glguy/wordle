@@ -60,7 +60,7 @@ give opts =
 
 playLoop :: Options [String] -> [String] -> String -> Map.Map Char Clue -> IO ()
 playLoop opts remain answer letters =
- do w <- getWord (optStrategy opts) letters (if optHard opts then remain else optDictionary opts) remain
+ do w <- getWord opts letters remain
     let clue = computeClues answer w
     let remain' = filter (\x -> computeClues x w == clue) remain
     let letters' = Map.unionWith max letters (Map.fromListWith max (zip w clue))
@@ -194,24 +194,31 @@ getSecret dict = go []
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc
 
-printLetters :: Map Char Clue -> IO ()
-printLetters letters =
+keyboardLayout :: Keyboard -> (String, String, String)
+keyboardLayout Qwerty  = ("QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM")
+keyboardLayout Dvorak  = ("   PYFGCRL", "AOEUIDHTNS", " QJKXBMWVZ")
+keyboardLayout Colemak = ("QWFPGJLUY", "ARSTDHNEIO", "ZXCVBKM")
+
+printLetters :: Keyboard -> Map Char Clue -> IO ()
+printLetters layout letters =
  do saveCursor
     setCursorPosition 0 20
-    row "QWERTYUIOP"
+    row r1
     setCursorPosition 1 22
-    row "ASDFGHJKL"
+    row r2
     setCursorPosition 2 24
-    row "ZXCVBNM"
+    row r3
     restoreCursor
   where
-    row xs = putStr (unwords [prettyWord [(Map.lookup x letters, x)] | x <- xs])
+    (r1,r2,r3) = keyboardLayout layout
+    row xs = putStr (unwords [if x == ' ' then "   " else prettyWord [(Map.lookup x letters, x)] | x <- xs])
 
-getWord :: Strategy -> Map Char Clue -> [String] -> [String] -> IO [Char]
-getWord strat letters dict remain = go []
+getWord :: Options [String] -> Map Char Clue -> [String] -> IO [Char]
+getWord opts letters remain = go []
   where
+    dict = if optHard opts then remain else optDictionary opts
     go acc =
-     do printLetters letters
+     do printLetters (optKeyboard opts) letters
         putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat '·')])
         hFlush stdout
         c <- toUpper <$> getChar
@@ -219,7 +226,7 @@ getWord strat letters dict remain = go []
           '\n'   | acc `elem` dict                    -> pure acc
           '\DEL' | not (null acc)                     -> go (init acc)
           '?' | length remain > 1000                  -> go topHint
-              | otherwise -> go =<< randomFromList (pickWord strat dict remain)
+              | otherwise -> go =<< randomFromList (pickWord (optStrategy opts) dict remain)
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc
 

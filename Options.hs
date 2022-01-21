@@ -1,4 +1,4 @@
-{-# Language DeriveTraversable, BlockArguments, ImportQualifiedPost #-}
+{-# Language DeriveTraversable, BlockArguments #-}
 {- |
 Module      : Options
 Description : The whole program
@@ -20,8 +20,12 @@ data Options a = Options
   , optStrategy   :: Strategy
   , optMode       :: Mode
   , optHard       :: Bool
+  , optKeyboard   :: Keyboard
   }
   deriving (Read, Show, Eq, Ord, Foldable, Functor, Traversable)
+
+data Keyboard = Qwerty | Dvorak | Colemak
+  deriving (Read, Show, Eq, Ord)
 
 defaultOpts :: Options FilePath
 defaultOpts = Options
@@ -30,6 +34,7 @@ defaultOpts = Options
   , optStrategy = MostChoices
   , optMode = error "defaultOpts: mode not set"
   , optHard = False
+  , optKeyboard = Qwerty
   }
 
 data Strategy = WorstCase | MaxEntropy | SumOfSquares | MostChoices
@@ -45,8 +50,12 @@ optDescrs =
   , Option [] ["worstcase"]    (NoArg \o -> o { optStrategy = WorstCase}) "Strategy: worst case"
   , Option [] ["maxentropy"]   (NoArg \o -> o { optStrategy = MaxEntropy}) "Strategy: maximum entropy"
   , Option [] ["sumofsquares"] (NoArg \o -> o { optStrategy = SumOfSquares}) "Strategy: sum of squares"
-  , Option [] ["mostchoices"] (NoArg \o -> o { optStrategy = MostChoices}) "Strategy: most choices"
+  , Option [] ["mostchoices"] (NoArg \o -> o { optStrategy = MostChoices}) "Strategy: most choices (default)"
+  , Option [] ["easy"] (NoArg \o -> o { optHard = False}) "Disable hard mode (default)"
   , Option [] ["hard"] (NoArg \o -> o { optHard = True}) "Enable hard mode"
+  , Option [] ["qwerty"]  (NoArg \o -> o { optKeyboard = Qwerty})  "Keyboard layout: qwerty (default)"
+  , Option [] ["dvorak"]  (NoArg \o -> o { optKeyboard = Dvorak})  "Keyboard layout: dvorak"
+  , Option [] ["colemak"] (NoArg \o -> o { optKeyboard = Colemak}) "Keyboard layout: colemak"
   ]
 
 getOptions :: IO (Options [String])
