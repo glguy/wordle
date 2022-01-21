@@ -19,6 +19,7 @@ data Options a = Options
   , optWordlist   :: a
   , optStrategy   :: Strategy
   , optMode       :: Mode
+  , optHard       :: Bool
   }
   deriving (Read, Show, Eq, Ord, Foldable, Functor, Traversable)
 
@@ -28,6 +29,7 @@ defaultOpts = Options
   , optWordlist = "play.txt"
   , optStrategy = MostChoices
   , optMode = error "defaultOpts: mode not set"
+  , optHard = False
   }
 
 data Strategy = WorstCase | MaxEntropy | SumOfSquares | MostChoices
@@ -44,12 +46,13 @@ optDescrs =
   , Option [] ["maxentropy"]   (NoArg \o -> o { optStrategy = MaxEntropy}) "Strategy: maximum entropy"
   , Option [] ["sumofsquares"] (NoArg \o -> o { optStrategy = SumOfSquares}) "Strategy: sum of squares"
   , Option [] ["mostchoices"] (NoArg \o -> o { optStrategy = MostChoices}) "Strategy: most choices"
+  , Option [] ["hard"] (NoArg \o -> o { optHard = True}) "Enable hard mode"
   ]
 
 getOptions :: IO (Options [String])
 getOptions =
  do args <- getArgs
-    case getOpt RequireOrder optDescrs args of
+    case getOpt Permute optDescrs args of
       (_, _, errs) | not (null errs) ->
         do mapM_ (hPutStrLn stderr) errs
            usage

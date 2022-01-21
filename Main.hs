@@ -50,23 +50,23 @@ withoutCursor m = bracket_ hideCursor showCursor
 play :: Options [String] -> IO ()
 play opts =
  do w <- randomFromList (optWordlist opts)
-    playLoop (optStrategy opts) (optDictionary opts) (optDictionary opts) w Map.empty
+    playLoop opts (optDictionary opts) w Map.empty
 
 -- | Play wordle with a manually-selected word
 give :: Options [String] -> IO ()
 give opts =
  do w <- getSecret (optDictionary opts)
-    playLoop (optStrategy opts) (optDictionary opts) (optDictionary opts) w Map.empty
+    playLoop opts (optDictionary opts) w Map.empty
 
-playLoop :: Strategy -> [String] -> [String] -> String -> Map.Map Char Clue -> IO ()
-playLoop strat dict remain answer letters =
- do w <- getWord strat letters dict remain
+playLoop :: Options [String] -> [String] -> String -> Map.Map Char Clue -> IO ()
+playLoop opts remain answer letters =
+ do w <- getWord (optStrategy opts) letters (if optHard opts then remain else optDictionary opts) remain
     let clue = computeClues answer w
     let remain' = filter (\x -> computeClues x w == clue) remain
     let letters' = Map.unionWith max letters (Map.fromListWith max (zip w clue))
     putStrLn ('\r' : prettyWord (zip (Just <$> clue) w))
     unless (clue == replicate 5 Hit)
-      (playLoop strat dict remain' answer letters')
+      (playLoop opts remain' answer letters')
 
 -- | Use the metric computation to have the computer make guesses.
 -- The user must provide the clue responses. The solver will use
@@ -78,32 +78,32 @@ solver ::
   IO ()
 solver opts start =
   solverLoop
-    (optStrategy opts)
+    opts
     (map (map toUpper) start <++ [topHint])
-    (optDictionary opts) (optDictionary opts)
+    (optDictionary opts)
 
 solverLoop ::
-  Strategy ->
-  [String] ->
+  Options [String] ->
   [String] ->
   [String] ->
   IO ()
 
-solverLoop _ _ _ [] =
+solverLoop _ _ [] =
  do putStrLn (colorWord [(Red,x) | x <- "ERROR"])
 
-solverLoop _ _ _ [answer] =
+solverLoop _ _ [answer] =
  do putStrLn (prettyWord [(Just Hit, x) | x <- answer])
 
-solverLoop strat nexts dict remain =
+solverLoop opts nexts remain =
  do (next, nexts') <- case nexts of
                         x:xs -> pure (x,xs)
-                        []   -> do x <- randomFromList (pickWord strat dict remain)
+                        []   -> do let d = if optHard opts then remain else optDictionary opts
+                                   x <- randomFromList (pickWord (optStrategy opts) d remain)
                                    pure (x,[])
     answer <- getClue (length remain) next
     putStrLn ""
     unless (answer == replicate 5 Hit)
-      (solverLoop strat nexts' dict (filter (\w -> computeClues w next == answer) remain))
+      (solverLoop opts nexts' (filter (\w -> computeClues w next == answer) remain))
 
 -- | Render a word with colors indicating clue status
 prettyWord :: [(Maybe Clue, Char)] -> String
@@ -205,7 +205,7 @@ printLetters letters =
     row "ZXCVBNM"
     restoreCursor
   where
-    row xs = putStr $ intercalate " " $ [prettyWord [(Map.lookup x letters, x)] | x <- xs]
+    row xs = putStr (unwords [prettyWord [(Map.lookup x letters, x)] | x <- xs])
 
 getWord :: Strategy -> Map Char Clue -> [String] -> [String] -> IO [Char]
 getWord strat letters dict remain = go []
