@@ -14,12 +14,11 @@ import Control.Monad (unless)
 import Data.Char (toUpper)
 import Data.Foldable
 import Data.Function (on)
-import Data.List (foldl', delete, groupBy, sortBy, mapAccumL)
+import Data.List
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
-import System.Console.ANSI (hideCursor, showCursor, clearLine)
-import System.Console.ANSI.Codes
+import System.Console.ANSI
 import System.IO
 import System.Random (randomRIO)
 import Text.Printf (printf)
@@ -41,7 +40,10 @@ withoutCursor :: IO c -> IO c
 withoutCursor m = bracket_ hideCursor showCursor
  do hSetBuffering stdin NoBuffering
     hSetEcho stdin False
-    putStrLn (setSGRCode [SetColor Foreground Dull Magenta] ++ "[ W O R D L E ]")
+    clearScreen
+    setCursorPosition 0 0
+    setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Dull Magenta]
+    putStrLn "[ W O R D L E ]"
     m
 
 -- | Play wordle with a randomly-selected word
@@ -139,11 +141,9 @@ metric strat dict word = f (Map.fromListWith (+) [(computeClues w word, 1) | w <
 negEntropy :: Foldable f => f Int -> Double
 negEntropy ns = w / denom - log denom
   where
-    M denom w = foldMap' (\x -> let x' = fromIntegral x in M x' (x' * log x')) ns
+    M denom w = foldl' (\(M a b) x -> let x' = fromIntegral x in M (a+x') (b+ x'*log x')) (M 0 0) ns
 
 data M = M !Double !Double
-instance Monoid M where mempty = M 0 0
-instance Semigroup M where M x y <> M u v = M (x+u) (y+v)
 
 -- | Given a dictionary and a list of remaining possibilities,
 -- find the words with the minimimum metric. Words from the
@@ -194,17 +194,29 @@ getSecret dict = go []
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc
 
+printLetters :: Map Char Clue -> IO ()
+printLetters letters =
+ do saveCursor
+    setCursorPosition 0 20
+    row "QWERTYUIOP"
+    setCursorPosition 1 22
+    row "ASDFGHJKL"
+    setCursorPosition 2 24
+    row "ZXCVBNM"
+    restoreCursor
+  where
+    row xs = putStr $ intercalate " " $ [prettyWord [(Map.lookup x letters, x)] | x <- xs]
+
 getWord :: Strategy -> Map Char Clue -> [String] -> [String] -> IO [Char]
 getWord strat letters dict remain = go []
   where
     go acc =
-     do putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat '·')]
-                  ++ "    " ++
-                  prettyWord [(Map.lookup x letters, x) | x <- ['A' .. 'Z']])
+     do printLetters letters
+        putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat '·')])
         hFlush stdout
         c <- toUpper <$> getChar
         case c of
-          '\n'   | acc `elem` dict                    -> acc <$ clearLine
+          '\n'   | acc `elem` dict                    -> pure acc
           '\DEL' | not (null acc)                     -> go (init acc)
           '?' | length remain > 1000                  -> go topHint
               | otherwise -> go =<< randomFromList (pickWord strat dict remain)
