@@ -14,6 +14,8 @@ import System.Console.GetOpt
 import System.IO
 import System.Exit
 
+import Paths_wordle
+
 data Options a = Options
   { optDictionary :: a
   , optWordlist   :: a
@@ -63,16 +65,25 @@ optDescrs =
 getOptions :: IO (Options [String])
 getOptions =
  do args <- getArgs
+
+    dictPath <- getDataFileName "all.txt"
+    wordsPath <- getDataFileName "play.txt"
+    let o1 m = defaultOpts
+              { optDictionary = dictPath
+              , optWordlist = wordsPath
+              , optMode = m
+              }
+
     case getOpt Permute optDescrs args of
       (_, _, errs) | not (null errs) ->
         do mapM_ (hPutStrLn stderr) errs
            usage
       (fs, ms, _) ->
-        do let opts = foldl' (\x f -> f x) defaultOpts fs
+        do let opts m = foldl' (\x f -> f x) (o1 m) fs
            opts' <- case ms of
-             "solve":start -> pure opts { optMode = Solve start }
-             ["play"]      -> pure opts { optMode = Play }
-             ["give"]      -> pure opts { optMode = Give }
+             "solve":start -> pure (opts (Solve start))
+             ["play"]      -> pure (opts Play)
+             ["give"]      -> pure (opts Give)
              _             -> usage
            traverse (fmap lines . readFile) opts'
 
