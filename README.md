@@ -47,4 +47,4 @@ Modes:
 
 See wordle in action in the `give` mode:
 
-[![asciicast](https://asciinema.org/a/u2AJqyXz3z2cYAlBui84Danid.svg)](https://asciinema.org/a/u2AJqyXz3z2cYAlBui84Danid)
+[![asciicast](https://asciinema.org/a/fAiDHl75gdDI4x9vZlxWT7stA.svg)](https://asciinema.org/a/fAiDHl75gdDI4x9vZlxWT7stA)
