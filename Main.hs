@@ -37,7 +37,8 @@ main =
       Play     -> withoutCursor (play opts)
 
 withoutCursor :: IO c -> IO c
-withoutCursor m = bracket_ hideCursor showCursor
+withoutCursor m =
+  bracket_ hideCursor showCursor
  do hSetBuffering stdin NoBuffering
     hSetEcho stdin False
     clearScreen
@@ -237,14 +238,28 @@ getWord opts prev remain = go []
       | optHard opts, Just c <- prev = hardCheck [] [] c w
       | otherwise = True
     go acc =
-     do putStr ('\r' : colorWord [(Blue, x) | x <- take 5 (acc ++ repeat '·')])
+     do draw (colorWord [(Blue, x) | x <- take 5 (acc ++ repeat '·')])
+        getLoop acc
+
+    draw str =
+     do putStr ('\r' : str)
         hFlush stdout
-        c <- toUpper <$> getChar
+
+    getLoop acc =
+     do c <- toUpper <$> getChar
         case c of
           '\n'   | acc `elem` dict, check acc         -> pure acc
+                 | otherwise -> do draw (colorWord [(Red, x) | x <- take 5 (acc ++ repeat '·')])
+                                   getLoop acc
           '\DEL' | not (null acc)                     -> go (init acc)
+
           '?' | length remain > 1000                  -> go topHint
-              | otherwise -> go =<< randomFromList (pickWord (optStrategy opts) dict' remain)
+              | otherwise ->
+                 do let clues = pickWord (optStrategy opts) dict' remain
+                    case [y | length acc == 5, (x,y) <- zip clues (tail clues ++ [head clues]), x == acc] of
+                      c:_ -> go c
+                      []  -> go =<< randomFromList clues
+
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
                  | otherwise                          -> go acc
 
