@@ -62,9 +62,12 @@ withoutCursor ui m =
 -- | Play wordle with a randomly-selected word
 play :: UI -> Options [String] -> IO ()
 play ui opts =
- do w <- randomFromList (optWordlist opts)
+ do answers <-
+     if optAdversarial opts
+       then pure (optWordlist opts)
+       else pure <$> randomFromList (optWordlist opts)
     case prepStart opts of
-      Right start -> playLoop ui opts (prepRemain opts) [w] start Nothing
+      Right start -> playLoop ui opts (prepRemain opts) answers start Nothing
       Left bad -> hPutStrLn stderr ("Invalid word: " ++ bad) >> exitFailure
 
 prepRemain :: Options [String] -> [String]
