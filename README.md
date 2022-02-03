@@ -45,6 +45,6 @@ Modes:
 
 ## Demonstration
 
-See wordle in action in the `give` mode:
+See wordle in action:
 
-[![asciicast](https://asciinema.org/a/fAiDHl75gdDI4x9vZlxWT7stA.svg)](https://asciinema.org/a/fAiDHl75gdDI4x9vZlxWT7stA)
+[![asciicast](https://asciinema.org/a/XgXUnc7RAPRAlYOH5TOCmR9fx.svg)](https://asciinema.org/a/XgXUnc7RAPRAlYOH5TOCmR9fx)
