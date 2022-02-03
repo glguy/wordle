@@ -23,6 +23,9 @@ data Options a = Options
   , optMode       :: Mode
   , optHard       :: Bool
   , optKeyboard   :: Keyboard
+  , optStart      :: [String]
+  , optCheat      :: Bool
+  , optAdversarial:: Bool
   }
   deriving (Read, Show, Eq, Ord, Foldable, Functor, Traversable)
 
@@ -37,12 +40,15 @@ defaultOpts = Options
   , optMode = error "defaultOpts: mode not set"
   , optHard = False
   , optKeyboard = Qwerty
+  , optStart = []
+  , optCheat = False
+  , optAdversarial = False
   }
 
 data Strategy = WorstCase | MaxEntropy | SumOfSquares | MostChoices
   deriving (Read, Show, Eq, Ord)
 
-data Mode = Play | Give | Solve [String]
+data Mode = Play | Give | Solve
   deriving (Read, Show, Eq, Ord)
 
 optDescrs :: [OptDescr (Options FilePath -> Options FilePath)]
@@ -60,6 +66,9 @@ optDescrs =
   , Option [] ["colemak"] (NoArg \o -> o { optKeyboard = Colemak}) "Keyboard layout: colemak"
   , Option [] ["alphabet"] (NoArg \o -> o { optKeyboard = Alphabet}) "Keyboard layout: alphabet"
   , Option [] ["frequencies"] (NoArg \o -> o { optKeyboard = Frequencies}) "Keyboard layout: frequencies"
+  , Option [] ["honest"] (NoArg \o -> o { optCheat = False}) "Make solver consider whole dictionary (default)"
+  , Option [] ["cheat"] (NoArg \o -> o { optCheat = True}) "Let solver use source word list"
+  , Option [] ["adversarial"] (NoArg \o -> o { optAdversarial = True}) "Let the solver delay committing to the correct word"
   ]
 
 getOptions :: IO (Options [String])
@@ -68,22 +77,23 @@ getOptions =
 
     dictPath <- getDataFileName "all.txt"
     wordsPath <- getDataFileName "play.txt"
-    let o1 m = defaultOpts
-              { optDictionary = dictPath
-              , optWordlist = wordsPath
-              , optMode = m
-              }
+    let o1 m xs = defaultOpts
+          { optDictionary = dictPath
+          , optWordlist = wordsPath
+          , optMode = m
+          , optStart = xs
+          }
 
     case getOpt Permute optDescrs args of
       (_, _, errs) | not (null errs) ->
         do mapM_ (hPutStrLn stderr) errs
            usage
       (fs, ms, _) ->
-        do let opts m = foldl' (\x f -> f x) (o1 m) fs
+        do let opts m xs = foldl' (\x f -> f x) (o1 m xs) fs
            opts' <- case ms of
-             "solve":start -> pure (opts (Solve start))
-             ["play"]      -> pure (opts Play)
-             ["give"]      -> pure (opts Give)
+             "solve":start -> pure (opts Solve start)
+             "play" :start -> pure (opts Play  start)
+             "give" :start -> pure (opts Give  start)
              _             -> usage
            traverse (fmap lines . readFile) opts'
 

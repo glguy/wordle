@@ -17,99 +17,151 @@ import Data.Function (on)
 import Data.List
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Ord (comparing)
 import System.Console.ANSI
+import System.Exit
 import System.IO
 import System.Random (randomRIO)
 import Text.Printf (printf)
 
 import Options
+import Data.Semigroup (Option)
 
 topHint :: String
 topHint = "RAISE"
 
+data UI = UI Keyboard [[(Color,Char)]] (Map Char Clue)
+
+printUI :: UI -> IO ()
+printUI (UI keyboard history letters) =
+ do clearScreen
+    setCursorPosition 0 0
+    setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Dull Magenta]
+    printLetters keyboard letters
+    putStrLn "[ W O R D L E ]"
+    for_ history (putStrLn . colorWord)
+
 main :: IO ()
 main =
  do opts <- getOptions
+    let ui = UI (optKeyboard opts) [] Map.empty
     case optMode opts of
-      Solve xs -> withoutCursor (solver opts xs)
-      Give     -> withoutCursor (give opts)
-      Play     -> withoutCursor (play opts)
+      Solve -> withoutCursor ui (solver ui opts)
+      Give  -> withoutCursor ui (give   ui opts)
+      Play  -> withoutCursor ui (play   ui opts)
 
-withoutCursor :: IO c -> IO c
-withoutCursor m =
+withoutCursor :: UI -> IO c -> IO c
+withoutCursor ui m =
   bracket_ hideCursor showCursor
  do hSetBuffering stdin NoBuffering
     hSetEcho stdin False
-    clearScreen
-    setCursorPosition 0 0
-    setSGR [SetConsoleIntensity BoldIntensity, SetColor Foreground Dull Magenta]
-    putStrLn "[ W O R D L E ]"
+    printUI ui
     m
 
 -- | Play wordle with a randomly-selected word
-play :: Options [String] -> IO ()
-play opts =
+play :: UI -> Options [String] -> IO ()
+play ui opts =
  do w <- randomFromList (optWordlist opts)
-    playLoop opts (optDictionary opts) w Nothing Map.empty
+    case prepStart opts of
+      Right start -> playLoop ui opts (prepRemain opts) [w] start Nothing
+      Left bad -> hPutStrLn stderr ("Invalid word: " ++ bad) >> exitFailure
+
+prepRemain :: Options [String] -> [String]
+prepRemain opts
+  | optCheat opts = optWordlist opts
+  | otherwise     = optDictionary opts
+
+prepStart :: Options [String] -> Either String [String]
+prepStart opts = traverse check (optStart opts)
+  where
+    check x
+      | x' `elem` optDictionary opts = Right x'
+      | otherwise                    = Left x
+      where
+        x' = map toUpper x
 
 -- | Play wordle with a manually-selected word
-give :: Options [String] -> IO ()
-give opts =
- do w <- getSecret (optDictionary opts)
-    playLoop opts (optDictionary opts) w Nothing Map.empty
+give :: UI -> Options [String] -> IO ()
+give ui opts =
+  case prepStart opts of
+    Left bad -> hPutStrLn stderr ("Invalid word: " ++ bad) >> exitFailure
+    Right start ->
+     do (w,ws) <-
+          case start of
+            w:ws -> pure (w,ws)
+            []   -> do w <- getSecret ui (optDictionary opts)
+                       pure (w,[])
+        playLoop ui opts (prepRemain opts) [w] ws Nothing
 
-playLoop :: Options [String] -> [String] -> String -> Maybe [(Clue, Char)] -> Map.Map Char Clue -> IO ()
-playLoop opts remain answer prev letters =
- do printLetters (optKeyboard opts) letters
-    w <- getWord opts prev remain
-    let clue = computeClues answer w
+playLoop :: UI -> Options [String] -> [String] -> [String] -> [String] -> Maybe [(Clue, Char)] -> IO ()
+playLoop ui opts remain answers start prev =
+ do printUI ui
+    (w,ws) <-
+      case start of
+        w:ws -> pure (w,ws)
+        []   -> do w <- getWord ui opts prev remain
+                   pure (w,[])
+    clue <- chooseClue answers w
+    let answers' = [a  | a <- answers, computeClues a w == clue]
     let remain' = filter (\x -> computeClues x w == clue) remain
-    let letters' = Map.unionWith max letters (Map.fromListWith max (zip w clue))
-    putStrLn ('\r' : prettyWord (zip (Just <$> clue) w))
-    unless (clue == replicate 5 Hit)
-      (playLoop opts remain' answer (Just (zip clue w)) letters')
+    let ui' = updateUI clue w ui
+    putStrLn ""
+    if clue == replicate 5 Hit then
+      printUI ui'
+    else
+      playLoop ui' opts remain' answers' ws (Just (zip clue w))
 
 -- | Use the metric computation to have the computer make guesses.
 -- The user must provide the clue responses. The solver will use
 -- the given guess-list to start and then switch to metrics when
 -- the list is exhausted.
 solver ::
+  UI ->
   Options [String] ->
-  [String] {- ^ initial guesses -} ->
   IO ()
-solver opts start =
+solver ui opts =
   solverLoop
+    ui
     opts
-    (map (map toUpper) start <++ [topHint])
+    (map (map toUpper) (optStart opts) <++ [topHint])
     Nothing
-    (optDictionary opts)
+    (prepRemain opts)
 
 solverLoop ::
+  UI ->
   Options [String] ->
   [String] ->
   Maybe [(Clue, Char)] ->
   [String] ->
   IO ()
 
-solverLoop _ _ _ [] =
+solverLoop _ _ _ _ [] =
  do putStrLn (colorWord [(Red,x) | x <- "ERROR"])
 
-solverLoop _ _ _ [answer] =
+solverLoop _ _ _ _ [answer] =
  do putStrLn (prettyWord [(Just Hit, x) | x <- answer])
 
-solverLoop opts nexts prev remain =
- do (next, nexts') <- case nexts of
+solverLoop ui opts nexts prev remain =
+ do printUI ui
+    (next, nexts') <- case nexts of
                         x:xs -> pure (x,xs)
                         []   -> do let d | optHard opts, Just c <- prev = filter (hardCheck [] [] c) (optDictionary opts)
                                          | otherwise = optDictionary opts
                                    x <- randomFromList (pickWord (optStrategy opts) d remain)
                                    pure (x,[])
-    answer <- getClue (length remain) next
+    clue <- getClue ui (length remain) next
+    let ui' = updateUI clue next ui
     putStrLn ""
-    unless (answer == replicate 5 Hit)
-      (solverLoop opts nexts' (Just (zip answer next))
-         (filter (\w -> computeClues w next == answer) remain))
+    unless (clue == replicate 5 Hit)
+      (solverLoop ui' opts nexts' (Just (zip clue next))
+         (filter (\w -> computeClues w next == clue) remain))
+
+updateUI :: [Clue] -> String -> UI -> UI
+updateUI clues word (UI k h l) =
+  UI k
+    (h ++ [[(clueColor c, x) | (c,x) <- zip clues word]])
+    (Map.unionWith max l (Map.fromListWith max (zip word clues)))
 
 -- | Render a word with colors indicating clue status
 prettyWord :: [(Maybe Clue, Char)] -> String
@@ -170,8 +222,8 @@ pickWord strat dict remain = [x | x <- xs, x `elem` remain] <++ xs
 
 -- * Input modes
 
-getClue :: Int -> String -> IO [Clue]
-getClue n w = go []
+getClue :: UI -> Int -> String -> IO [Clue]
+getClue ui n w = go []
   where
     go acc =
      do putStr ('\r' : prettyWord (zip (map Just acc ++ replicate (5 - length acc) Nothing) w)
@@ -180,6 +232,7 @@ getClue n w = go []
         hFlush stdout
         input <- getChar
         case input of
+          '\^L' -> printUI ui >> go acc
           'g'    | length acc < 5  -> go (acc ++ [Hit])
           'b'    | length acc < 5  -> go (acc ++ [Miss])
           'y'    | length acc < 5  -> go (acc ++ [Near])
@@ -187,14 +240,15 @@ getClue n w = go []
           '\n'   | length acc == 5 -> pure acc
           _                        -> go acc
 
-getSecret :: [String] -> IO [Char]
-getSecret dict = go []
+getSecret :: UI -> [String] -> IO [Char]
+getSecret ui dict = go []
   where
     go acc =
      do putStr ('\r' : prettyWord [(Just Hit, x) | x <- take 5 ('◆' <$ acc <|> repeat '·')])
         hFlush stdout
         c <- toUpper <$> getChar
         case c of
+          '\^L' -> printUI ui >> go acc
           '\n'   | acc `elem` dict                    -> pure acc
           '\DEL' | not (null acc)                     -> go (init acc)
           _      | 'A' <= c, c <= 'Z', length acc < 5 -> go (acc ++ [c])
@@ -224,11 +278,12 @@ printLetters layout letters =
     draw x = prettyWord [(Map.lookup x letters, x)]
 
 getWord ::
+  UI ->
   Options [String] ->
   Maybe [(Clue, Char)] {- ^ previous response -} ->
   [String] {- ^ remaining possible words -} ->
   IO [Char]
-getWord opts prev remain = go []
+getWord ui opts prev remain = go []
   where
     dict = optDictionary opts
     dict'
@@ -248,6 +303,8 @@ getWord opts prev remain = go []
     getLoop acc =
      do c <- toUpper <$> getChar
         case c of
+          '$' -> print remain >> go acc
+          '\^L' -> printUI ui >> go acc
           '\n'   | acc `elem` dict, check acc         -> pure acc
                  | otherwise -> do draw (colorWord [(Red, x) | x <- take 5 (acc ++ repeat '·')])
                                    getLoop acc
@@ -297,6 +354,14 @@ computeClues answer input = snd (mapAccumL clue1 nears (zip answer input))
       | x == y     = (         m, Hit )
       | y `elem` m = (delete y m, Near)
       | otherwise  = (         m, Miss)
+
+chooseClue :: [String] -> String -> IO [Clue]
+chooseClue answers w
+  | clueOptions == Set.singleton win = pure win
+  | otherwise = randomFromList (Set.toList (Set.delete win clueOptions))
+  where
+    win = replicate 5 Hit
+    clueOptions = Set.fromList [computeClues a w | a <- answers]
 
 -- * List utilities
 
