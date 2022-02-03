@@ -15,9 +15,16 @@ computer search strategy.
 
 Key bindings:
 
-* <kbd>Enter</kbd> - Submit input
-* <kbd>Backspace</kbd> - Delete last letter
+* <kbd>Enter</kbd> - Submit word
+* <kbd>Backspace</kbd> - Delete last input
 * <kbd>?</kbd> - Ask computer to select a word
+* <kbd>Ctrl</kbd><kbd>C</kbd> - Quit
+
+Solve mode bindings:
+
+* <kbd>B</kbd> - Mark a letter black - This letter is not in the target word
+* <kbd>Y</kbd> - Mark a letter yellow - This letter is in the target word, but not at this location
+* <kbd>G</kbd> - Mark a letter green - This letter is correct for this location
 
 ```
 Usage: wordle [FLAGS] MODE
