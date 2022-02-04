@@ -360,11 +360,11 @@ computeClues answer input = snd (mapAccumL clue1 nears (zip answer input))
 
 chooseClue :: [String] -> String -> IO [Clue]
 chooseClue answers w
-  | clueOptions == Set.singleton win = pure win
-  | otherwise = randomFromList (Set.toList (Set.delete win clueOptions))
+  | null clueOptions = pure win
+  | otherwise = randomFromList clueOptions
   where
     win = replicate 5 Hit
-    clueOptions = Set.fromList [computeClues a w | a <- answers]
+    clueOptions = [computeClues a w | a <- answers, let c = computeClues a w, c /= win]
 
 -- * List utilities
 
