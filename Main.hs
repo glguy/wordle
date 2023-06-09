@@ -26,7 +26,6 @@ import System.Random (randomRIO)
 import Text.Printf (printf)
 
 import Options
-import Data.Semigroup (Option)
 
 topHint :: String
 topHint = "RAISE"
@@ -153,7 +152,7 @@ solverLoop ui opts nexts prev remain =
                                          | otherwise = optDictionary opts
                                    x <- randomFromList (pickWord (optStrategy opts) d remain)
                                    pure (x,[])
-    clue <- getClue ui (length remain) next
+    clue <- getClue ui remain next
     let ui' = updateUI clue next ui
     putStrLn ""
     unless (clue == replicate 5 Hit)
@@ -225,17 +224,18 @@ pickWord strat dict remain = [x | x <- xs, x `elem` remain] <++ xs
 
 -- * Input modes
 
-getClue :: UI -> Int -> String -> IO [Clue]
-getClue ui n w = go []
+getClue :: UI -> [String] -> String -> IO [Clue]
+getClue ui remain w = go []
   where
     go acc =
      do putStr ('\r' : prettyWord (zip (map Just acc ++ replicate (5 - length acc) Nothing) w)
               ++ setSGRCode [Reset, SetColor Foreground Dull Black]
-              ++ printf "  %5d" n)
+              ++ printf "  %5d" (length remain))
         hFlush stdout
         input <- getChar
         case input of
           '\^L' -> printUI ui >> go acc
+          '$'   -> print remain >> go acc
           'g'    | length acc < 5  -> go (acc ++ [Hit])
           'b'    | length acc < 5  -> go (acc ++ [Miss])
           'y'    | length acc < 5  -> go (acc ++ [Near])
